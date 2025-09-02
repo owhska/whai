@@ -16,7 +16,15 @@ const {
     // Tarefas
     createTask, getTaskById, getAllTasks, getTasksByUser, updateTaskStatus, updateTask, deleteTask,
     // Logs
-    insertActivityLog, getActivityLog
+    insertActivityLog, getActivityLog,
+    // Contatos
+    getContacts, createContact, updateContact, deleteContact,
+    // Conversas/Mensagens
+    upsertChat, getChats, createMessage, markChatAsRead, getMessagesByChat,
+    // Agentes/Config
+    getAgentConfig, setAgentConfig, getAgentServices, setAgentServices,
+    // Templates
+    getMessageTemplates, createMessageTemplate
 } = require('./database');
 
 
@@ -296,128 +304,7 @@ app.delete("/api/usuarios/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// Endpoint para buscar horas trabalhadas de um mês específico
-app.get('/api/horas-trabalhadas/:userId/:year/:month', authenticateToken, async (req, res) => {
-  try {
-    const { userId, year, month } = req.params;
-    
-    console.log('[HORAS-MES] === INICIANDO BUSCA NO BACKEND ===');
-    console.log('[HORAS-MES] Parâmetros recebidos:', { userId, year, month });
-    console.log('[HORAS-MES] Usuário autenticado:', req.user?.uid);
-    console.log('[HORAS-MES] Timestamp:', new Date().toISOString());
-    
-    // Verificar se o usuário pode acessar esses dados
-    if (userId !== req.user.uid) {
-      console.log('[HORAS-MES] Verificando permissões de admin...');
-      // Verificar se é admin no SQLite
-      const user = await getUserByUid(req.user.uid);
-      if (!user || user.cargo !== 'admin') {
-        console.log('[HORAS-MES] Acesso negado - não é admin');
-        return res.status(403).json({ error: "Acesso não autorizado" });
-      }
-      console.log('[HORAS-MES] Acesso autorizado - usuário é admin');
-    } else {
-      console.log('[HORAS-MES] Acesso autorizado - próprio usuário');
-    }
-    
-    // Criar range de datas para o mês
-    const startDate = `${year}-${month.padStart(2, '0')}-01`;
-    const nextMonth = parseInt(month) === 12 ? '01' : (parseInt(month) + 1).toString().padStart(2, '0');
-    const nextYear = parseInt(month) === 12 ? (parseInt(year) + 1).toString() : year;
-    const endDate = `${nextYear}-${nextMonth}-01`;
-    
-    console.log('[HORAS-MES] Range de busca:', { startDate, endDate });
-    
-    // Buscar dados no SQLite
-    const horasData = await getHorasTrabalhadasByUserAndPeriod(userId, startDate, endDate);
-    
-    console.log('[HORAS-MES] Registros encontrados no SQLite:', horasData.length);
-    
-    let totalMinutesMonth = 0;
-    const formattedData = horasData.map(record => {
-      totalMinutesMonth += record.total_minutes || 0;
-      return {
-        id: record.id,
-        userId: record.user_id,
-        userName: record.user_name,
-        date: record.date,
-        totalMinutes: record.total_minutes,
-        totalHours: record.total_hours,
-        updatedAt: record.updated_at
-      };
-    });
-    
-    const hoursMonth = Math.floor(totalMinutesMonth / 60);
-    const minutesMonth = Math.round(totalMinutesMonth % 60);
-    const totalHoursMonth = `${hoursMonth}h ${minutesMonth}m`;
-    
-    console.log('[HORAS-MES] Resultado:', {
-      totalDays: formattedData.length,
-      totalMinutesMonth,
-      totalHoursMonth
-    });
-    
-    res.status(200).json({
-      userId,
-      year: parseInt(year),
-      month: parseInt(month),
-      totalDays: formattedData.length,
-      totalMinutesMonth,
-      totalHoursMonth,
-      dailyRecords: formattedData
-    });
-  } catch (error) {
-    console.error("[HORAS-MES] Erro ao buscar horas mensais:", error);
-    res.status(500).json({ error: "Erro ao buscar horas mensais: " + error.message });
-  }
-});
 
-app.post('/api/horas-trabalhadas', authenticateToken, async (req, res) => {
-  try {
-    const { userId, userName, date, totalMinutes, totalHours } = req.body;
-    
-    console.log('[HORAS-TRABALHADAS] Dados recebidos:', { userId, userName, date, totalMinutes, totalHours });
-
-    if (!userId || !date || totalMinutes === undefined) {
-      return res.status(400).json({ error: "userId, date e totalMinutes são obrigatórios" });
-    }
-
-    // Buscar nome do usuário se não foi fornecido
-    let finalUserName = userName;
-    if (!finalUserName) {
-      try {
-        const user = await getUserByUid(userId);
-        if (user) {
-          finalUserName = user.nome_completo || user.email?.split('@')[0] || 'Usuário';
-        } else {
-          finalUserName = 'Usuário não encontrado';
-        }
-      } catch (userError) {
-        console.error('[HORAS-TRABALHADAS] Erro ao buscar usuário:', userError);
-        finalUserName = 'Erro ao buscar usuário';
-      }
-    }
-    
-    const horasData = {
-      userId,
-      userName: finalUserName,
-      date,
-      totalMinutes,
-      totalHours
-    };
-    
-    console.log('[HORAS-TRABALHADAS] Salvando dados no SQLite:', horasData);
-    
-    // Salvar no SQLite
-    await upsertHorasTrabalhadas(horasData);
-
-    console.log('[HORAS-TRABALHADAS] Dados salvos no SQLite com sucesso!');
-    res.status(200).json({ message: "Horas trabalhadas salvas com sucesso!", data: horasData });
-  } catch (error) {
-    console.error("[HORAS-TRABALHADAS] Erro ao salvar horas trabalhadas:", error);
-    res.status(500).json({ error: "Erro ao salvar horas trabalhadas: " + error.message });
-  }
-});
 
 // Armazenar tokens de reset temporários (em produção, usar banco de dados)
 const resetTokens = new Map();
@@ -1219,6 +1106,219 @@ app.delete('/api/files/:fileId', authenticateToken, async (req, res) => {
 // Endpoint estático para servir arquivos (alternativo ao download)
 app.use('/uploads', express.static(uploadsDir));
 
+// =========================
+// Contatos - CRUD básico
+// =========================
+app.get('/api/contacts', authenticateToken, async (req, res) => {
+  try {
+    const rows = await getContacts();
+    res.status(200).json(rows);
+  } catch (e) {
+    console.error('[CONTACTS] Erro ao listar:', e);
+    res.status(500).json({ error: 'Erro ao listar contatos' });
+  }
+});
+
+app.post('/api/contacts', authenticateToken, async (req, res) => {
+  try {
+    const { name, phone, avatar, tags = [], note = '' } = req.body;
+    if (!name) return res.status(400).json({ error: 'Nome é obrigatório' });
+    const created = await createContact({ userId: req.user.uid, name, phone, avatar, tags, note });
+    res.status(201).json(created);
+  } catch (e) {
+    console.error('[CONTACTS] Erro ao criar:', e);
+    res.status(500).json({ error: 'Erro ao criar contato' });
+  }
+});
+
+app.put('/api/contacts/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, phone, avatar, tags = [], note = '' } = req.body;
+    if (!name) return res.status(400).json({ error: 'Nome é obrigatório' });
+    await updateContact(id, { name, phone, avatar, tags, note });
+    res.status(200).json({ message: 'Contato atualizado com sucesso' });
+  } catch (e) {
+    console.error('[CONTACTS] Erro ao atualizar:', e);
+    res.status(500).json({ error: 'Erro ao atualizar contato' });
+  }
+});
+
+app.delete('/api/contacts/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await deleteContact(id);
+    res.status(200).json({ message: 'Contato removido com sucesso' });
+  } catch (e) {
+    console.error('[CONTACTS] Erro ao remover:', e);
+    res.status(500).json({ error: 'Erro ao remover contato' });
+  }
+});
+
+// =========================
+// WhatsApp/Conversas (simulação)
+// =========================
+app.get('/api/whatsapp/status', authenticateToken, async (req, res) => {
+  try {
+    // Simulação simples
+    res.status(200).json({ status: 'connected', connected: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Erro ao verificar status' });
+  }
+});
+
+app.get('/api/whatsapp/chats', authenticateToken, async (req, res) => {
+  try {
+    const chats = await getChats();
+    res.status(200).json(chats.map(c => ({
+      id: c.id,
+      name: c.name || 'Contato',
+      lastMessage: { body: c.lastMessage || '' },
+      lastMessageAt: c.timestamp || null,
+      unreadCount: c.unreadCount || 0
+    })));
+  } catch (e) {
+    console.error('[WHATSAPP] Erro ao obter chats:', e);
+    res.status(500).json({ error: 'Erro ao obter chats' });
+  }
+});
+
+app.get('/api/whatsapp/chats/:chatId/messages', authenticateToken, async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const messages = await getMessagesByChat(chatId, 500);
+    res.status(200).json(messages);
+  } catch (e) {
+    console.error('[WHATSAPP] Erro ao obter mensagens:', e);
+    res.status(500).json({ error: 'Erro ao obter mensagens' });
+  }
+});
+
+app.post('/api/whatsapp/send', authenticateToken, async (req, res) => {
+  try {
+    const { chatId, message } = req.body;
+    if (!chatId || !message) return res.status(400).json({ error: 'chatId e message são obrigatórios' });
+
+    // Garantir que a conversa exista
+    await upsertChat({ id: chatId, name: 'Contato' });
+    const msg = await createMessage(chatId, { sender: req.user.email, text: message, sent: 1, read: 0 });
+    res.status(201).json({ success: true, messageId: msg.id });
+  } catch (e) {
+    console.error('[WHATSAPP] Erro ao enviar mensagem:', e);
+    res.status(500).json({ error: 'Erro ao enviar mensagem' });
+  }
+});
+
+app.post('/api/whatsapp/mark-as-read', authenticateToken, async (req, res) => {
+  try {
+    const { chatId } = req.body;
+    if (!chatId) return res.status(400).json({ error: 'chatId é obrigatório' });
+    await markChatAsRead(chatId);
+    res.status(200).json({ success: true });
+  } catch (e) {
+    console.error('[WHATSAPP] Erro ao marcar como lido:', e);
+    res.status(500).json({ error: 'Erro ao marcar como lido' });
+  }
+});
+
+// =========================
+// Agentes: Config e Serviços
+// =========================
+app.get('/api/agents/config', authenticateToken, async (req, res) => {
+  try {
+    const cfg = await getAgentConfig();
+    res.status(200).json(cfg);
+  } catch (e) {
+    console.error('[AGENTS] Erro ao obter config:', e);
+    res.status(500).json({ error: 'Erro ao obter config' });
+  }
+});
+
+app.put('/api/agents/config', authenticateToken, async (req, res) => {
+  try {
+    const { enabled = false, businessHours = { start: '09:00', end: '18:00' }, welcomeMessage = 'Olá! Como posso ajudá-lo?', awayMessage = 'Estamos fora do horário de atendimento. Retornaremos em breve.' } = req.body;
+    await setAgentConfig({ enabled, businessHours, welcomeMessage, awayMessage });
+    res.status(200).json({ message: 'Config atualizada com sucesso' });
+  } catch (e) {
+    console.error('[AGENTS] Erro ao atualizar config:', e);
+    res.status(500).json({ error: 'Erro ao atualizar config' });
+  }
+});
+
+app.get('/api/agents/services', authenticateToken, async (req, res) => {
+  try {
+    const services = await getAgentServices();
+    res.status(200).json(services);
+  } catch (e) {
+    console.error('[AGENTS] Erro ao obter serviços:', e);
+    res.status(500).json({ error: 'Erro ao obter serviços' });
+  }
+});
+
+app.put('/api/agents/services', authenticateToken, async (req, res) => {
+  try {
+    const { servicoA = true, servicoB = false, servicoC = false, servicoD = true } = req.body;
+    await setAgentServices({ servicoA, servicoB, servicoC, servicoD });
+    res.status(200).json({ message: 'Serviços atualizados com sucesso' });
+  } catch (e) {
+    console.error('[AGENTS] Erro ao atualizar serviços:', e);
+    res.status(500).json({ error: 'Erro ao atualizar serviços' });
+  }
+});
+
+// =========================
+// Templates de Mensagem
+// =========================
+app.get('/api/message-templates', authenticateToken, async (req, res) => {
+  try {
+    const rows = await getMessageTemplates();
+    res.status(200).json(rows);
+  } catch (e) {
+    console.error('[TEMPLATES] Erro ao listar:', e);
+    res.status(500).json({ error: 'Erro ao listar templates' });
+  }
+});
+
+app.post('/api/message-templates', authenticateToken, async (req, res) => {
+  try {
+    const { name, content } = req.body;
+    if (!name || !content) return res.status(400).json({ error: 'name e content são obrigatórios' });
+    const created = await createMessageTemplate({ name, content });
+    res.status(201).json(created);
+  } catch (e) {
+    console.error('[TEMPLATES] Erro ao criar:', e);
+    res.status(500).json({ error: 'Erro ao criar template' });
+  }
+});
+
+// =========================
+// Relatórios/Estatísticas
+// =========================
+app.get('/api/reports/summary', authenticateToken, async (req, res) => {
+  try {
+    // Estatísticas simples com base nas tabelas existentes
+    const [users, tasks, logs, chats] = await Promise.all([
+      getAllUsers(),
+      getAllTasks(),
+      getActivityLog(),
+      getChats()
+    ]);
+
+    const today = new Date().toISOString().slice(0,10);
+    const tasksThisMonth = tasks.filter(t => (t.data_vencimento || '').slice(0,7) === new Date().toISOString().slice(0,7)).length;
+
+    res.status(200).json({
+      totalUsers: users.length,
+      totalTasks: tasks.length,
+      totalLogs: logs.length,
+      totalConversations: chats.length,
+      tasksThisMonth
+    });
+  } catch (e) {
+    console.error('[REPORTS] Erro ao obter resumo:', e);
+    res.status(500).json({ error: 'Erro ao obter resumo' });
+  }
+});
 
 // Iniciar o servidor
 app.listen(PORT, () => {

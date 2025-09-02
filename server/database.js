@@ -135,6 +135,121 @@ function initializeDatabase() {
         }
     });
 
+    // 6. Tabela de contatos
+    db.run(`
+        CREATE TABLE IF NOT EXISTS contatos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id VARCHAR(255) NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            phone VARCHAR(50),
+            avatar VARCHAR(10) DEFAULT '👤',
+            tags TEXT, -- JSON string
+            note TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES usuarios (uid)
+        )
+    `, (err) => {
+        if (err) {
+            console.error('❌ Erro ao criar tabela contatos:', err.message);
+        } else {
+            console.log('✅ Tabela contatos criada/verificada com sucesso!');
+        }
+    });
+
+    // 7. Tabela de conversas
+    db.run(`
+        CREATE TABLE IF NOT EXISTS conversas (
+            id VARCHAR(255) PRIMARY KEY,
+            name VARCHAR(255),
+            last_message TEXT,
+            last_timestamp DATETIME,
+            unread_count INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    `, (err) => {
+        if (err) {
+            console.error('❌ Erro ao criar tabela conversas:', err.message);
+        } else {
+            console.log('✅ Tabela conversas criada/verificada com sucesso!');
+        }
+    });
+
+    // 8. Tabela de mensagens
+    db.run(`
+        CREATE TABLE IF NOT EXISTS mensagens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversa_id VARCHAR(255) NOT NULL,
+            sender VARCHAR(255),
+            text TEXT NOT NULL,
+            sent BOOLEAN DEFAULT 1,
+            read BOOLEAN DEFAULT 0,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (conversa_id) REFERENCES conversas (id)
+        )
+    `, (err) => {
+        if (err) {
+            console.error('❌ Erro ao criar tabela mensagens:', err.message);
+        } else {
+            console.log('✅ Tabela mensagens criada/verificada com sucesso!');
+        }
+    });
+
+    // 9. Tabela de configurações de agente (auto-resposta, horários)
+    db.run(`
+        CREATE TABLE IF NOT EXISTS agente_config (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            enabled BOOLEAN DEFAULT 0,
+            business_start VARCHAR(5) DEFAULT '09:00',
+            business_end VARCHAR(5) DEFAULT '18:00',
+            welcome_message TEXT DEFAULT 'Olá! Como posso ajudá-lo?',
+            away_message TEXT DEFAULT 'Estamos fora do horário de atendimento. Retornaremos em breve.'
+        )
+    `, (err) => {
+        if (err) {
+            console.error('❌ Erro ao criar tabela agente_config:', err.message);
+        } else {
+            console.log('✅ Tabela agente_config criada/verificada com sucesso!');
+            // Inserir linha única padrão se não existir
+            db.run(`INSERT OR IGNORE INTO agente_config (id) VALUES (1)`);
+        }
+    });
+
+    // 10. Tabela de serviços/agentes habilitados e cards
+    db.run(`
+        CREATE TABLE IF NOT EXISTS agente_servicos (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            servicoA BOOLEAN DEFAULT 1,
+            servicoB BOOLEAN DEFAULT 0,
+            servicoC BOOLEAN DEFAULT 0,
+            servicoD BOOLEAN DEFAULT 1
+        )
+    `, (err) => {
+        if (err) {
+            console.error('❌ Erro ao criar tabela agente_servicos:', err.message);
+        } else {
+            console.log('✅ Tabela agente_servicos criada/verificada com sucesso!');
+            db.run(`INSERT OR IGNORE INTO agente_servicos (id) VALUES (1)`);
+        }
+    });
+
+    // 11. Tabela de templates de mensagem
+    db.run(`
+        CREATE TABLE IF NOT EXISTS message_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name VARCHAR(255) NOT NULL,
+            content TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    `, (err) => {
+        if (err) {
+            console.error('❌ Erro ao criar tabela message_templates:', err.message);
+        } else {
+            console.log('✅ Tabela message_templates criada/verificada com sucesso!');
+        }
+    });
+
     // Migração: adicionar campo password se não existir
     db.run(`ALTER TABLE usuarios ADD COLUMN password VARCHAR(255)`, (err) => {
         if (err && !err.message.includes('duplicate column name')) {
@@ -577,6 +692,193 @@ function getActivityLogs(userId = null, limit = 100) {
     });
 }
 
+// Contatos - CRUD
+function getContacts() {
+    return new Promise((resolve, reject) => {
+        const sql = `SELECT * FROM contatos ORDER BY created_at DESC`;
+        db.all(sql, [], (err, rows) => {
+            if (err) return reject(err);
+            resolve(rows.map(r => ({
+                id: r.id,
+                userId: r.user_id,
+                name: r.name,
+                phone: r.phone,
+                avatar: r.avatar,
+                tags: r.tags ? JSON.parse(r.tags) : [],
+                note: r.note,
+                createdAt: r.created_at,
+                updatedAt: r.updated_at
+            })));
+        });
+    });
+}
+
+function createContact(contact) {
+    return new Promise((resolve, reject) => {
+        const { userId, name, phone, avatar = '👤', tags = [], note = '' } = contact;
+        const sql = `INSERT INTO contatos (user_id, name, phone, avatar, tags, note) VALUES (?, ?, ?, ?, ?, ?)`;
+        db.run(sql, [userId, name, phone || null, avatar, JSON.stringify(tags), note || null], function(err){
+            if (err) return reject(err);
+            resolve({ id: this.lastID, userId, name, phone, avatar, tags, note });
+        });
+    });
+}
+
+function updateContact(id, contact) {
+    return new Promise((resolve, reject) => {
+        const { name, phone, avatar = '👤', tags = [], note = '' } = contact;
+        const sql = `UPDATE contatos SET name = ?, phone = ?, avatar = ?, tags = ?, note = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
+        db.run(sql, [name, phone || null, avatar, JSON.stringify(tags), note || null, id], function(err){
+            if (err) return reject(err);
+            resolve({ updatedRows: this.changes });
+        });
+    });
+}
+
+function deleteContact(id) {
+    return new Promise((resolve, reject) => {
+        db.run(`DELETE FROM contatos WHERE id = ?`, [id], function(err){
+            if (err) return reject(err);
+            resolve({ deletedRows: this.changes });
+        });
+    });
+}
+
+// Conversas e Mensagens (simulação local)
+function upsertChat(chat) {
+    return new Promise((resolve, reject) => {
+        const { id, name, lastMessage = '', lastTimestamp = null, unread = 0 } = chat;
+        const sql = `INSERT INTO conversas (id, name, last_message, last_timestamp, unread_count)
+                     VALUES (?, ?, ?, ?, ?)
+                     ON CONFLICT(id) DO UPDATE SET
+                        name=excluded.name,
+                        last_message=excluded.last_message,
+                        last_timestamp=excluded.last_timestamp,
+                        unread_count=excluded.unread_count,
+                        updated_at=CURRENT_TIMESTAMP`;
+        db.run(sql, [id, name, lastMessage, lastTimestamp, unread], function(err){
+            if (err) return reject(err);
+            resolve({ id, name, lastMessage, lastTimestamp, unread });
+        });
+    });
+}
+
+function getChats() {
+    return new Promise((resolve, reject) => {
+        db.all(`SELECT * FROM conversas ORDER BY COALESCE(last_timestamp, created_at) DESC`, [], (err, rows) => {
+            if (err) return reject(err);
+            resolve(rows.map(r => ({
+                id: r.id,
+                name: r.name,
+                lastMessage: r.last_message || '',
+                timestamp: r.last_timestamp,
+                unreadCount: r.unread_count
+            })));
+        });
+    });
+}
+
+function createMessage(conversaId, message) {
+    return new Promise((resolve, reject) => {
+        const { sender = null, text, sent = 1, read = 0, timestamp = new Date().toISOString() } = message;
+        const sql = `INSERT INTO mensagens (conversa_id, sender, text, sent, read, timestamp) VALUES (?, ?, ?, ?, ?, ?)`;
+        db.run(sql, [conversaId, sender, text, sent ? 1 : 0, read ? 1 : 0, timestamp], function(err){
+            if (err) return reject(err);
+            // Atualizar conversa
+            db.run(`UPDATE conversas SET last_message = ?, last_timestamp = ?, unread_count = CASE WHEN ? = 0 THEN unread_count + 1 ELSE unread_count END, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [text, timestamp, sent ? 0 : 1, conversaId]);
+            resolve({ id: this.lastID, conversaId, sender, text, sent: !!sent, read: !!read, timestamp });
+        });
+    });
+}
+
+function markChatAsRead(conversaId) {
+    return new Promise((resolve, reject) => {
+        db.run(`UPDATE conversas SET unread_count = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [conversaId], function(err){
+            if (err) return reject(err);
+            resolve({ updatedRows: this.changes });
+        });
+    });
+}
+
+function getMessagesByChat(conversaId, limit = 200) {
+    return new Promise((resolve, reject) => {
+        db.all(`SELECT * FROM mensagens WHERE conversa_id = ? ORDER BY timestamp ASC LIMIT ?`, [conversaId, limit], (err, rows) => {
+            if (err) return reject(err);
+            resolve(rows.map(r => ({ id: r.id, conversaId: r.conversa_id, sender: r.sender, text: r.text, sent: !!r.sent, read: !!r.read, timestamp: r.timestamp })));
+        });
+    });
+}
+
+// Configurações de agente e serviços
+function getAgentConfig() {
+    return new Promise((resolve, reject) => {
+        db.get(`SELECT * FROM agente_config WHERE id = 1`, [], (err, row) => {
+            if (err) return reject(err);
+            resolve({
+                enabled: !!row.enabled,
+                businessHours: { start: row.business_start, end: row.business_end },
+                welcomeMessage: row.welcome_message,
+                awayMessage: row.away_message
+            });
+        });
+    });
+}
+
+function setAgentConfig(config) {
+    return new Promise((resolve, reject) => {
+        const { enabled, businessHours, welcomeMessage, awayMessage } = config;
+        const sql = `UPDATE agente_config SET enabled = ?, business_start = ?, business_end = ?, welcome_message = ?, away_message = ? WHERE id = 1`;
+        db.run(sql, [enabled ? 1 : 0, businessHours.start, businessHours.end, welcomeMessage, awayMessage], function(err){
+            if (err) return reject(err);
+            resolve({ updatedRows: this.changes });
+        });
+    });
+}
+
+function getAgentServices() {
+    return new Promise((resolve, reject) => {
+        db.get(`SELECT * FROM agente_servicos WHERE id = 1`, [], (err, row) => {
+            if (err) return reject(err);
+            resolve({
+                servicoA: !!row.servicoA,
+                servicoB: !!row.servicoB,
+                servicoC: !!row.servicoC,
+                servicoD: !!row.servicoD
+            });
+        });
+    });
+}
+
+function setAgentServices(services) {
+    return new Promise((resolve, reject) => {
+        const { servicoA, servicoB, servicoC, servicoD } = services;
+        const sql = `UPDATE agente_servicos SET servicoA = ?, servicoB = ?, servicoC = ?, servicoD = ? WHERE id = 1`;
+        db.run(sql, [servicoA ? 1 : 0, servicoB ? 1 : 0, servicoC ? 1 : 0, servicoD ? 1 : 0], function(err){
+            if (err) return reject(err);
+            resolve({ updatedRows: this.changes });
+        });
+    });
+}
+
+// Templates
+function getMessageTemplates() {
+    return new Promise((resolve, reject) => {
+        db.all(`SELECT * FROM message_templates ORDER BY created_at DESC`, [], (err, rows) => {
+            if (err) return reject(err);
+            resolve(rows);
+        });
+    });
+}
+
+function createMessageTemplate({ name, content }) {
+    return new Promise((resolve, reject) => {
+        db.run(`INSERT INTO message_templates (name, content) VALUES (?, ?)`, [name, content], function(err){
+            if (err) return reject(err);
+            resolve({ id: this.lastID, name, content });
+        });
+    });
+}
+
 module.exports = {
     db,
     insertFile,
@@ -600,5 +902,24 @@ module.exports = {
     deleteTask,
     insertActivityLog,
     getActivityLog: getActivityLogs,
-    checkTaskExists
+    checkTaskExists,
+    // contatos
+    getContacts,
+    createContact,
+    updateContact,
+    deleteContact,
+    // conversas/mensagens
+    upsertChat,
+    getChats,
+    createMessage,
+    markChatAsRead,
+    getMessagesByChat,
+    // agente config/serviços
+    getAgentConfig,
+    setAgentConfig,
+    getAgentServices,
+    setAgentServices,
+    // templates
+    getMessageTemplates,
+    createMessageTemplate
 };

@@ -20,6 +20,71 @@ import { useNavigate } from "react-router-dom";
 import { taskService, userService, logService, agendaTributariaService } from '../services/api';
 import whatsappService from '../services/whatsappService';
 import axiosInstance from '../utils/axiosConfig';
+
+// Novo serviço para contatos
+const contactService = {
+  getAll: () => axiosInstance.get('/api/contatos').then(res => res.data),
+  create: (data) => axiosInstance.post('/api/contatos', data).then(res => res.data),
+  update: (id, data) => axiosInstance.put(`/api/contatos/${id}`, data).then(res => res.data),
+  delete: (id) => axiosInstance.delete(`/api/contatos/${id}`).then(res => res.data)
+};
+
+// Novo serviço para conversas
+const conversationService = {
+  getAll: () => axiosInstance.get('/api/conversas').then(res => res.data),
+  create: (data) => axiosInstance.post('/api/conversas', data).then(res => res.data),
+  getMessages: (conversaId) => axiosInstance.get(`/api/mensagens/${conversaId}`).then(res => res.data),
+  createMessage: (data) => axiosInstance.post('/api/mensagens', data).then(res => res.data)
+};
+
+// Novo serviço para agentes
+const agentService = {
+  getAll: () => axiosInstance.get('/api/agentes-servicos').then(res => res.data),
+  create: (data) => axiosInstance.post('/api/agentes-servicos', data).then(res => res.data),
+  update: (id, data) => axiosInstance.put(`/api/agentes-servicos/${id}`, data).then(res => res.data),
+  delete: (id) => axiosInstance.delete(`/api/agentes-servicos/${id}`).then(res => res.data)
+};
+
+// Novo serviço para templates
+const templateService = {
+  getAll: () => axiosInstance.get('/api/templates-mensagens').then(res => res.data),
+  create: (data) => axiosInstance.post('/api/templates-mensagens', data).then(res => res.data),
+  update: (id, data) => axiosInstance.put(`/api/templates-mensagens/${id}`, data).then(res => res.data),
+  delete: (id) => axiosInstance.delete(`/api/templates-mensagens/${id}`).then(res => res.data)
+};
+
+// Serviço para dados de relatórios
+const reportsService = {
+  // Estatísticas gerais do dashboard
+  getDashboardStats: () => axiosInstance.get('/api/relatorios/dashboard').then(res => res.data),
+  
+  // Dados de conversas por período
+  getConversationsByMonth: (year = new Date().getFullYear()) => 
+    axiosInstance.get(`/api/relatorios/conversas-mes/${year}`).then(res => res.data),
+  
+  // Dados de mensagens por período (usuários vs agentes/IA)
+  getMessagesByMonth: (year = new Date().getFullYear()) => 
+    axiosInstance.get(`/api/relatorios/mensagens-mes/${year}`).then(res => res.data),
+  
+  // Performance dos agentes
+  getAgentPerformance: (period = 'month') => 
+    axiosInstance.get(`/api/relatorios/agentes/${period}`).then(res => res.data),
+  
+  // Estatísticas de tempo de resposta
+  getResponseTimeStats: (period = 'month') => 
+    axiosInstance.get(`/api/relatorios/tempo-resposta/${period}`).then(res => res.data),
+  
+  // Top contatos mais ativos
+  getTopActiveContacts: (limit = 10) => 
+    axiosInstance.get(`/api/relatorios/top-contatos/${limit}`).then(res => res.data),
+  
+  // Relatório de satisfação (se implementado)
+  getSatisfactionReport: (period = 'month') => 
+    axiosInstance.get(`/api/relatorios/satisfacao/${period}`).then(res => res.data),
+  
+  // Status dos agentes em tempo real
+  getAgentsStatus: () => axiosInstance.get('/api/relatorios/status-agentes').then(res => res.data)
+};
 import "../styles/styles.css";
 import "../styles/whatsapp.css";
 
@@ -123,14 +188,53 @@ const Dash = () => {
   const [contacts, setContacts] = useState([]);
   const [contactSearch, setContactSearch] = useState("");
   const [showContactModal, setShowContactModal] = useState(false);
-  const [editingContactIndex, setEditingContactIndex] = useState(null);
+  const [editingContactId, setEditingContactId] = useState(null);
   const [newContact, setNewContact] = useState({
-    name: "",
-    phone: "",
+    nome: "",
+    telefone: "",
     avatar: "👤",
     tags: [],
-    note: "",
+    nota: "",
   });
+  const [loadingContacts, setLoadingContacts] = useState(false);
+  
+  // Estados para Agentes e Serviços
+  const [agentes, setAgentes] = useState([]);
+  const [showAgentModal, setShowAgentModal] = useState(false);
+  const [editingAgentId, setEditingAgentId] = useState(null);
+  const [newAgent, setNewAgent] = useState({
+    nome: "",
+    descricao: "",
+    ativo: true
+  });
+  const [loadingAgents, setLoadingAgents] = useState(false);
+  
+  // Estados para Templates de Mensagens
+  const [templates, setTemplates] = useState([]);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState(null);
+  const [newTemplate, setNewTemplate] = useState({
+    nome: "",
+    conteudo: "",
+    ativo: true
+  });
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  
+  // Estados para dados dos relatórios (API real)
+  const [reportData, setReportData] = useState({
+    dashboardStats: null,
+    conversationsByMonth: [],
+    messagesByMonth: [],
+    agentPerformance: [],
+    responseTimeStats: null,
+    topActiveContacts: [],
+    satisfactionReport: null,
+    agentsStatus: []
+  });
+  const [loadingReports, setLoadingReports] = useState(false);
+  const [reportsError, setReportsError] = useState(null);
+  const [selectedReportYear, setSelectedReportYear] = useState(new Date().getFullYear());
+  const [useMockData, setUseMockData] = useState(false); // Usar apenas dados reais da API
 
   const [newTask, setNewTask] = useState({
     titulo: "",
@@ -218,7 +322,54 @@ const Dash = () => {
   useEffect(() => {
     if (!currentUser) return;
     fetchTasks();
+    fetchContacts();
   }, [currentUser]);
+  
+  // Função para buscar contatos
+  const fetchContacts = async () => {
+    try {
+      setLoadingContacts(true);
+      const contactsData = await contactService.getAll();
+      console.log('[CONTATOS DEBUG] Dados recebidos do backend:', contactsData);
+      setContacts(contactsData);
+    } catch (error) {
+      console.error("[CONTATOS] Erro ao buscar contatos:", error);
+      // Não falhar silenciosamente - mostrar erro para o usuário
+      if (error.response) {
+        console.error("[CONTATOS] Status:", error.response.status);
+        console.error("[CONTATOS] Dados:", error.response.data);
+      }
+    } finally {
+      setLoadingContacts(false);
+    }
+  };
+  
+  // Função para buscar agentes (apenas para admins)
+  const fetchAgents = async () => {
+    if (!isAdmin) return;
+    try {
+      setLoadingAgents(true);
+      const agentsData = await agentService.getAll();
+      setAgentes(agentsData);
+    } catch (error) {
+      console.error("Erro ao buscar agentes:", error);
+    } finally {
+      setLoadingAgents(false);
+    }
+  };
+  
+  // Função para buscar templates
+  const fetchTemplates = async () => {
+    try {
+      setLoadingTemplates(true);
+      const templatesData = await templateService.getAll();
+      setTemplates(templatesData);
+    } catch (error) {
+      console.error("Erro ao buscar templates:", error);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
 
   useEffect(() => {
     const hoje = new Date();
@@ -1428,123 +1579,6 @@ const Dash = () => {
     scrollToBottom();
   }, [selectedChat]);
 
-  // Demo data - alguns chats simulados para demonstrar funcionalidades
-  useEffect(() => {
-    // Se não há chats carregados da API, usar dados de exemplo
-    if (chats.length === 0 && activeView === 'home') {
-      const demoChats = [
-        {
-          id: 'chat1',
-          name: 'Maria Silva',
-          avatar: '👩‍💼',
-          lastMessage: 'Olá! Preciso de ajuda com meu pedido.',
-          time: '14:30',
-          unread: 2,
-          online: true,
-          messages: [
-            {
-              id: 1,
-              text: 'Olá! Gostaria de fazer um pedido.',
-              sent: false,
-              time: '14:28',
-              read: true,
-              sender: 'Maria Silva'
-            },
-            {
-              id: 2,
-              text: 'Olá! Claro, posso ajudá-la. Qual produto você tem interesse?',
-              sent: false,
-              time: '14:29',
-              read: true,
-              sender: 'ChatBot',
-              isBot: true
-            },
-            {
-              id: 3,
-              text: 'Preciso de ajuda com meu pedido.',
-              sent: false,
-              time: '14:30',
-              read: false,
-              sender: 'Maria Silva'
-            }
-          ]
-        },
-        {
-          id: 'chat2',
-          name: 'João Santos',
-          avatar: '👨‍💻',
-          lastMessage: 'Quando meu produto chega?',
-          time: '13:45',
-          unread: 1,
-          online: false,
-          messages: [
-            {
-              id: 1,
-              text: 'Quando meu produto chega?',
-              sent: false,
-              time: '13:45',
-              read: false,
-              sender: 'João Santos'
-            }
-          ]
-        },
-        {
-          id: 'chat3',
-          name: 'Ana Costa',
-          avatar: '👩',
-          lastMessage: 'Obrigada pelo atendimento!',
-          time: '12:15',
-          unread: 0,
-          online: false,
-          messages: [
-            {
-              id: 1,
-              text: 'Tenho uma dúvida sobre os preços.',
-              sent: false,
-              time: '12:10',
-              read: true,
-              sender: 'Ana Costa'
-            },
-            {
-              id: 2,
-              text: 'Claro! Qual produto você tem interesse?',
-              sent: false,
-              time: '12:12',
-              read: true,
-              sender: 'ChatBot',
-              isBot: true
-            },
-            {
-              id: 3,
-              text: 'Obrigada pelo atendimento!',
-              sent: false,
-              time: '12:15',
-              read: true,
-              sender: 'Ana Costa'
-            }
-          ]
-        }
-      ];
-      
-      setChats(demoChats);
-      
-      // Inicializar modos de conversa (padrão: bot)
-      const initialModes = {};
-      demoChats.forEach(chat => {
-        initialModes[chat.id] = 'bot';
-      });
-      setConversationModes(initialModes);
-      
-      // Atualizar estatísticas
-      setMonitoringStats({
-        totalConversations: demoChats.length,
-        unreadMessages: demoChats.reduce((sum, chat) => sum + chat.unread, 0),
-        activeAgents: 1,
-        responseTime: '2.3s',
-        dailyMessages: 24
-      });
-    }
-  }, [activeView, chats.length]);
 
   const handleSendMessage = () => {
     if (newMessage.trim()) {
@@ -1616,37 +1650,271 @@ const Dash = () => {
   );
 
   // Contatos - Helpers
-  const filteredContacts = contacts.filter(c =>
-    [c.name, c.phone, (c.tags || []).join(" ")].join(" ").toLowerCase().includes(contactSearch.toLowerCase())
-  );
+  const filteredContacts = contacts.filter(c => {
+    if (!contactSearch.trim()) return true;
+    
+    const searchLower = contactSearch.toLowerCase();
+    const nome = c.nome || '';
+    const telefone = c.telefone || '';
+    const tags = Array.isArray(c.tags) ? c.tags : (typeof c.tags === 'string' ? JSON.parse(c.tags) : []);
+    const nota = c.nota || '';
+    
+    return (
+      nome.toLowerCase().includes(searchLower) ||
+      telefone.toLowerCase().includes(searchLower) ||
+      tags.join(' ').toLowerCase().includes(searchLower) ||
+      nota.toLowerCase().includes(searchLower)
+    );
+  });
 
   const resetContactForm = () => {
-    setNewContact({ name: "", phone: "", avatar: "👤", tags: [], note: "" });
-    setEditingContactIndex(null);
+    setNewContact({ nome: "", telefone: "", avatar: "👤", tags: [], nota: "" });
+    setEditingContactId(null);
   };
 
-  const handleAddOrUpdateContact = () => {
-    if (!newContact.name || !newContact.phone) return;
-    setContacts(prev => {
-      const copy = [...prev];
-      if (editingContactIndex !== null) {
-        copy[editingContactIndex] = { ...copy[editingContactIndex], ...newContact };
-        return copy;
+  const handleAddOrUpdateContact = async () => {
+    if (!newContact.nome) {
+      alert("Por favor, preencha pelo menos o nome do contato.");
+      return;
+    }
+    
+    try {
+      console.log('[CONTATOS] Salvando contato:', newContact);
+      
+      if (editingContactId !== null) {
+        console.log('[CONTATOS] Atualizando contato ID:', editingContactId);
+        const updatedContact = await contactService.update(editingContactId, newContact);
+        console.log('[CONTATOS] Contato atualizado:', updatedContact);
+        setContacts(prev => prev.map(c => c.id === editingContactId ? { ...c, ...newContact, id: editingContactId } : c));
+      } else {
+        console.log('[CONTATOS] Criando novo contato');
+        const createdContact = await contactService.create(newContact);
+        console.log('[CONTATOS] Contato criado:', createdContact);
+        setContacts(prev => [createdContact, ...prev]);
       }
-      return [{ id: Date.now(), ...newContact }, ...copy];
-    });
-    setShowContactModal(false);
-    resetContactForm();
+      setShowContactModal(false);
+      resetContactForm();
+      console.log('[CONTATOS] Operação concluída com sucesso');
+    } catch (error) {
+      console.error("[CONTATOS] Erro ao salvar contato:", error);
+      
+      let errorMessage = "Erro ao salvar contato. Tente novamente.";
+      if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.response?.status === 401) {
+        errorMessage = "Não autorizado. Faça login novamente.";
+      } else if (error.response?.status >= 500) {
+        errorMessage = "Erro do servidor. Tente novamente mais tarde.";
+      }
+      
+      alert(errorMessage);
+    }
   };
 
-  const handleEditContact = (index) => {
-    setEditingContactIndex(index);
-    setNewContact({ ...contacts[index] });
+  const handleEditContact = (contact) => {
+    console.log('[CONTATOS] Editando contato:', contact);
+    setEditingContactId(contact.id);
+    
+    // Tratar tags que podem vir como string JSON do backend
+    let parsedTags = [];
+    if (contact.tags) {
+      try {
+        parsedTags = Array.isArray(contact.tags) ? contact.tags : JSON.parse(contact.tags);
+      } catch (e) {
+        console.warn('[CONTATOS] Erro ao fazer parse das tags:', contact.tags);
+        parsedTags = [];
+      }
+    }
+    
+    setNewContact({ 
+      nome: contact.nome || "",
+      telefone: contact.telefone || "",
+      avatar: contact.avatar || "👤",
+      tags: parsedTags,
+      nota: contact.nota || ""
+    });
     setShowContactModal(true);
   };
 
-  const handleDeleteContact = (index) => {
-    setContacts(prev => prev.filter((_, i) => i !== index));
+  const handleDeleteContact = async (contactId) => {
+    if (window.confirm("Tem certeza de que deseja excluir este contato?")) {
+      try {
+        await contactService.delete(contactId);
+        setContacts(prev => prev.filter(c => c.id !== contactId));
+      } catch (error) {
+        console.error("Erro ao excluir contato:", error);
+        alert("Erro ao excluir contato. Tente novamente.");
+      }
+    }
+  };
+  
+  // Agentes - Helpers
+  const resetAgentForm = () => {
+    setNewAgent({ nome: "", descricao: "", ativo: true });
+    setEditingAgentId(null);
+  };
+
+  const handleAddOrUpdateAgent = async () => {
+    if (!newAgent.nome) {
+      alert("Por favor, preencha pelo menos o nome do agente/serviço.");
+      return;
+    }
+    
+    try {
+      if (editingAgentId !== null) {
+        await agentService.update(editingAgentId, newAgent);
+        setAgentes(prev => prev.map(a => a.id === editingAgentId ? { ...a, ...newAgent } : a));
+      } else {
+        const createdAgent = await agentService.create(newAgent);
+        setAgentes(prev => [createdAgent, ...prev]);
+      }
+      setShowAgentModal(false);
+      resetAgentForm();
+    } catch (error) {
+      console.error("Erro ao salvar agente:", error);
+      alert("Erro ao salvar agente. Tente novamente.");
+    }
+  };
+
+  const handleEditAgent = (agent) => {
+    setEditingAgentId(agent.id);
+    setNewAgent({ 
+      nome: agent.nome || "",
+      descricao: agent.descricao || "",
+      ativo: agent.ativo !== undefined ? agent.ativo : true
+    });
+    setShowAgentModal(true);
+  };
+
+  const handleDeleteAgent = async (agentId) => {
+    if (window.confirm("Tem certeza de que deseja excluir este agente/serviço?")) {
+      try {
+        await agentService.delete(agentId);
+        setAgentes(prev => prev.filter(a => a.id !== agentId));
+      } catch (error) {
+        console.error("Erro ao excluir agente:", error);
+        alert("Erro ao excluir agente. Tente novamente.");
+      }
+    }
+  };
+  
+  // Templates - Helpers
+  const resetTemplateForm = () => {
+    setNewTemplate({ nome: "", conteudo: "", ativo: true });
+    setEditingTemplateId(null);
+  };
+
+  const handleAddOrUpdateTemplate = async () => {
+    if (!newTemplate.nome || !newTemplate.conteudo) {
+      alert("Por favor, preencha o nome e conteúdo do template.");
+      return;
+    }
+    
+    try {
+      if (editingTemplateId !== null) {
+        await templateService.update(editingTemplateId, newTemplate);
+        setTemplates(prev => prev.map(t => t.id === editingTemplateId ? { ...t, ...newTemplate } : t));
+      } else {
+        const createdTemplate = await templateService.create(newTemplate);
+        setTemplates(prev => [createdTemplate, ...prev]);
+      }
+      setShowTemplateModal(false);
+      resetTemplateForm();
+    } catch (error) {
+      console.error("Erro ao salvar template:", error);
+      alert("Erro ao salvar template. Tente novamente.");
+    }
+  };
+
+  const handleEditTemplate = (template) => {
+    setEditingTemplateId(template.id);
+    setNewTemplate({ 
+      nome: template.nome || "",
+      conteudo: template.conteudo || "",
+      ativo: template.ativo !== undefined ? template.ativo : true
+    });
+    setShowTemplateModal(true);
+  };
+
+  const handleDeleteTemplate = async (templateId) => {
+    if (window.confirm("Tem certeza de que deseja excluir este template?")) {
+      try {
+        await templateService.delete(templateId);
+        setTemplates(prev => prev.filter(t => t.id !== templateId));
+      } catch (error) {
+        console.error("Erro ao excluir template:", error);
+        alert("Erro ao excluir template. Tente novamente.");
+      }
+    }
+  };
+  
+  // Funções para buscar dados reais dos relatórios
+  const fetchReportData = async () => {
+    console.log('[REPORTS] Buscando dados reais da API...');
+    setLoadingReports(true);
+    setReportsError(null);
+
+    try {
+      // Buscar todos os dados dos relatórios em paralelo
+      const [dashboardStats, conversationsByMonth, messagesByMonth, agentPerformance, responseTimeStats, topActiveContacts, agentsStatus] = await Promise.allSettled([
+        reportsService.getDashboardStats(),
+        reportsService.getConversationsByMonth(selectedReportYear),
+        reportsService.getMessagesByMonth(selectedReportYear),
+        reportsService.getAgentPerformance(),
+        reportsService.getResponseTimeStats(),
+        reportsService.getTopActiveContacts(10),
+        reportsService.getAgentsStatus()
+      ]);
+
+      const newReportData = {
+        dashboardStats: dashboardStats.status === 'fulfilled' ? dashboardStats.value : null,
+        conversationsByMonth: conversationsByMonth.status === 'fulfilled' ? conversationsByMonth.value : [],
+        messagesByMonth: messagesByMonth.status === 'fulfilled' ? messagesByMonth.value : [],
+        agentPerformance: agentPerformance.status === 'fulfilled' ? agentPerformance.value : [],
+        responseTimeStats: responseTimeStats.status === 'fulfilled' ? responseTimeStats.value : null,
+        topActiveContacts: topActiveContacts.status === 'fulfilled' ? topActiveContacts.value : [],
+        agentsStatus: agentsStatus.status === 'fulfilled' ? agentsStatus.value : []
+      };
+
+      setReportData(newReportData);
+      console.log('[REPORTS] Dados reais carregados com sucesso:', newReportData);
+
+      // Log de eventuais falhas
+      [dashboardStats, conversationsByMonth, messagesByMonth, agentPerformance, responseTimeStats, topActiveContacts, agentsStatus].forEach((result, index) => {
+        const endpoints = ['dashboardStats', 'conversationsByMonth', 'messagesByMonth', 'agentPerformance', 'responseTimeStats', 'topActiveContacts', 'agentsStatus'];
+        if (result.status === 'rejected') {
+          console.warn(`[REPORTS] Erro ao buscar ${endpoints[index]}:`, result.reason);
+        }
+      });
+
+    } catch (error) {
+      console.error('[REPORTS] Erro geral ao buscar dados de relatórios:', error);
+      setReportsError('Erro ao carregar dados dos relatórios.');
+    } finally {
+      setLoadingReports(false);
+    }
+  };
+
+  // Carregamento inicial de dados adicional
+  useEffect(() => {
+    if (isAdmin && activeView === "agenda-tributaria") {
+      fetchAgents();
+      fetchTemplates();
+    }
+
+    // Buscar dados de relatórios quando a aba for ativada
+    if (activeView === "reports") {
+      fetchReportData();
+    }
+  }, [isAdmin, activeView, selectedReportYear, useMockData]);
+
+  // Função para alternar entre dados mock e reais
+  const toggleDataSource = () => {
+    setUseMockData(!useMockData);
+    if (!useMockData) {
+      // Se está mudando para dados reais, forçar uma nova busca
+      setTimeout(() => fetchReportData(), 100);
+    }
   };
 
   // Função para assumir controle de uma conversa do chatbot
@@ -1809,251 +2077,309 @@ const Dash = () => {
 
   const currentChat = chats[selectedChat] || chats[0] || { avatar: '👤', name: 'Sem conversas', online: false, time: '', lastMessage: '', messages: [] };
 
-  const renderChatView = () => (
-    <div className="whatsapp-container flex">
-      {/* Sidebar de Conversas */}
-      <div className="whatsapp-sidebar">
-        {/* Header da Sidebar */}
-        <div className="whatsapp-header">
-          <div className="chat-stats">
-            <div className="stat-item">
-              <User size={16} />
-              <span>{chats.length} conversas</span>
-            </div>
-            <div className="stat-item">
-              <Bell size={16} />
-              <span>{chats.reduce((sum, chat) => sum + chat.unread, 0)} não lidas</span>
-            </div>
-          </div>
-
-          {/* Campo de Busca */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Pesquisar conversas..."
-              className="whatsapp-search"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-
-          {/* Filtros de conversas */}
-          <div className="chat-controls">
-            <button className="filter-btn active">Todas</button>
-            <button className="filter-btn">Não lidas</button>
+  const renderChatView = () => {
+    // Estado de carregamento
+    if (isLoadingWhatsApp) {
+      return (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
+            <p className="text-gray-600">Carregando conversas...</p>
           </div>
         </div>
+      );
+    }
 
-        {/* Status de conexão */}
-        <div className="connection-status connected">
-          <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-          <span>Conectado ao WhatsApp Business API</span>
-        </div>
-
-        {/* Lista de Conversas */}
-        <div className="chat-list">
-          {filteredChats.map((chat, index) => (
-            <div
-              key={chat.id}
-              className={`chat-item ${
-                selectedChat === index ? 'active' : ''
-              }`}
-              onClick={() => setSelectedChat(index)}
+    // Estado de erro
+    if (whatsappError) {
+      return (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center max-w-md">
+            <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">Erro na Conexão</h3>
+            <p className="text-gray-600 mb-4">{whatsappError}</p>
+            <button
+              onClick={connectWhatsApp}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
             >
-              <div className="chat-avatar">
-                {chat.avatar}
-                {chat.online && <div className="online-indicator"></div>}
-              </div>
-
-              <div className="chat-info">
-                <div className="chat-name">
-                  <div className="flex items-center gap-1">
-                    <span>{chat.name}</span>
-                    {/* Indicador do modo da conversa */}
-                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                      conversationModes[chat.id] === 'human' 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-blue-100 text-blue-800'
-                    }`} title={conversationModes[chat.id] === 'human' ? 'Atendimento humano' : 'Atendimento bot'}>
-                      {conversationModes[chat.id] === 'human' ? '👤' : '🤖'}
-                    </span>
-                  </div>
-                  <span className="chat-time">{chat.time}</span>
-                </div>
-                <div className="chat-last-message">
-                  <span>{chat.lastMessage}</span>
-                  {chat.unread > 0 && (
-                    <span className="unread-badge">
-                      {chat.unread}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Área Principal do Chat */}
-      <div className="chat-main">
-        {/* Header do Chat */}
-        <div className="chat-header">
-          <div className="chat-header-info">
-            <div className="chat-header-avatar">
-              {currentChat.avatar}
-            </div>
-            <div className="chat-header-text">
-              <h3>{currentChat.name}</h3>
-              <p>
-                {currentChat.online ? (
-                  <>
-                    <span className="text-green-600">●</span> online
-                  </>
-                ) : (
-                  'visto por último hoje às 13:45'
-                )}
-              </p>
-            </div>
+              Tentar Novamente
+            </button>
           </div>
+        </div>
+      );
+    }
 
-          <div className="chat-actions">
-            {conversationModes[currentChat.id] === 'human' ? (
-              /* Botão para retornar ao bot quando em modo humano */
-              <button 
-                onClick={() => handleReturnConversationToBot(currentChat.id)}
-                className={`takeover-btn takeover-btn-human flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${
-                  takingOverChat && selectedChat === chats.indexOf(currentChat) 
-                    ? 'opacity-70 cursor-not-allowed' 
-                    : 'hover:bg-green-200 hover:border-green-300'
-                }`}
-                title="Retornar conversa para o bot"
-                disabled={takingOverChat}
+    // Estado sem conversas
+    if (!whatsappConnected || chats.length === 0) {
+      return (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center max-w-md">
+            <MessageCircle className="w-16 h-16 text-gray-300 mx-auto mb-6" />
+            <h3 className="text-xl font-semibold text-gray-800 mb-2">Nenhuma Conversa</h3>
+            <p className="text-gray-600 mb-6">
+              {!whatsappConnected 
+                ? "Conecte-se ao WhatsApp para visualizar suas conversas" 
+                : "Suas conversas aparecerão aqui quando você receber mensagens"}
+            </p>
+            {!whatsappConnected && (
+              <button
+                onClick={connectWhatsApp}
+                className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors flex items-center gap-2 mx-auto"
               >
-                {takingOverChat && selectedChat === chats.indexOf(currentChat) ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Transferindo...</span>
-                  </>
-                ) : (
-                  <>
-                    <Bot className="w-4 h-4" />
-                    <span>Retornar ao Bot</span>
-                  </>
-                )}
-              </button>
-            ) : (
-              /* Botão para assumir controle quando em modo bot */
-              <button 
-                onClick={() => handleTakeoverConversation(currentChat.id)}
-                className={`takeover-btn flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${
-                  takingOverChat && selectedChat === chats.indexOf(currentChat) 
-                    ? 'opacity-70 cursor-not-allowed' 
-                    : 'hover:bg-blue-200 hover:border-blue-300'
-                } bg-blue-100 text-blue-800 border border-blue-200`}
-                title="Assumir conversa do bot"
-                disabled={takingOverChat}
-              >
-                {takingOverChat && selectedChat === chats.indexOf(currentChat) ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Assumindo...</span>
-                  </>
-                ) : (
-                  <>
-                    <User className="w-4 h-4" />
-                    <span>Assumir</span>
-                  </>
-                )}
+                <MessageCircle className="w-4 h-4" />
+                Conectar WhatsApp
               </button>
             )}
-            
-            <Search size={20} title="Pesquisar mensagens" className="cursor-pointer hover:text-gray-700" />
-            <MoreVertical size={20} title="Mais opções" className="cursor-pointer hover:text-gray-700" />
           </div>
         </div>
+      );
+    }
 
-        {/* Área de Mensagens */}
-        <div className="messages-container">
-          {/* Mensagem de sistema */}
-
-          {(currentChat.messages || []).map((msg) => (
-            <div
-              key={msg.id}
-              className={`message ${msg.sent ? 'sent' : 'received'}`}
-            >
-              <div className={`message-bubble ${msg.sent ? 'sent' : 'received'} ${msg.sender ? 'agent-message' : ''}`}>
-                {msg.sender && !msg.sent && (
-                  <div className="message-sender">
-                    {msg.sender}
-                    <span className="ai-status">🤖 IA</span>
-                  </div>
-                )}
-                <div className="message-content">{msg.text}</div>
-                <div className="message-meta">
-                  <span>{msg.time}</span>
-                  {msg.sent && (
-                    <div className={`message-status ${msg.read ? 'read' : ''}`}>
-                      {msg.read ?
-                        <CheckCheck size={12} /> :
-                        <Check size={12} />
-                      }
-                    </div>
-                  )}
-                </div>
+    return (
+      <div className="whatsapp-container flex">
+        {/* Sidebar de Conversas */}
+        <div className="whatsapp-sidebar">
+          {/* Header da Sidebar */}
+          <div className="whatsapp-header">
+            <div className="chat-stats">
+              <div className="stat-item">
+                <User size={16} />
+                <span>{chats.length} conversas</span>
+              </div>
+              <div className="stat-item">
+                <Bell size={16} />
+                <span>{chats.reduce((sum, chat) => sum + chat.unread, 0)} não lidas</span>
               </div>
             </div>
-          ))}
 
-          {/* Indicador de digitação */}
-          <div className="typing-indicator">
-            <span>Texto Teste</span>
-            <div className="typing-dots">
-              <div className="typing-dot"></div>
-              <div className="typing-dot"></div>
-              <div className="typing-dot"></div>
+            {/* Campo de Busca */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Pesquisar conversas..."
+                className="whatsapp-search"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+
+            {/* Filtros de conversas */}
+            <div className="chat-controls">
+              <button className="filter-btn active">Todas</button>
+              <button className="filter-btn">Não lidas</button>
             </div>
           </div>
 
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input de Mensagem */}
-        <div className="message-input-container">
-          <div className="input-actions">
-            <button className="input-action-btn" title="Emoji">
-              <Smile size={20} />
-            </button>
-            <button className="input-action-btn" title="Anexar">
-              <Paperclip size={20} />
-            </button>
+          {/* Status de conexão */}
+          <div className={`connection-status ${whatsappConnected ? 'connected' : 'disconnected'}`}>
+            <div className={`w-2 h-2 rounded-full ${whatsappConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            <span>{whatsappConnected ? 'Conectado ao WhatsApp' : 'Desconectado'}</span>
           </div>
 
-          <input
-            type="text"
-            placeholder="Digite uma mensagem"
-            className="message-input"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            onKeyPress={handleKeyPress}
-          />
+          {/* Lista de Conversas */}
+          <div className="chat-list">
+            {filteredChats.map((chat, index) => (
+              <div
+                key={chat.id}
+                className={`chat-item ${
+                  selectedChat === index ? 'active' : ''
+                }`}
+                onClick={() => setSelectedChat(index)}
+              >
+                <div className="chat-avatar">
+                  {chat.avatar || '👤'}
+                  {chat.online && <div className="online-indicator"></div>}
+                </div>
 
-          {newMessage.trim() ? (
-            <button
-              onClick={handleSendMessage}
-              className="send-button"
-              title="Enviar mensagem"
-            >
-              <Send size={18} />
-            </button>
-          ) : (
-            <button className="input-action-btn" title="Mensagem de voz">
-              <Mic size={20} />
-            </button>
-          )}
+                <div className="chat-info">
+                  <div className="chat-name">
+                    <div className="flex items-center gap-1">
+                      <span>{chat.name}</span>
+                      {/* Indicador do modo da conversa */}
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                        conversationModes[chat.id] === 'human' 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-blue-100 text-blue-800'
+                      }`} title={conversationModes[chat.id] === 'human' ? 'Atendimento humano' : 'Atendimento bot'}>
+                        {conversationModes[chat.id] === 'human' ? '👤' : '🤖'}
+                      </span>
+                    </div>
+                    <span className="chat-time">{chat.time}</span>
+                  </div>
+                  <div className="chat-last-message">
+                    <span>{chat.lastMessage}</span>
+                    {chat.unread > 0 && (
+                      <span className="unread-badge">
+                        {chat.unread}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Área Principal do Chat */}
+        <div className="chat-main">
+          {/* Header do Chat */}
+          <div className="chat-header">
+            <div className="chat-header-info">
+              <div className="chat-header-avatar">
+                {currentChat.avatar || '👤'}
+              </div>
+              <div className="chat-header-text">
+                <h3>{currentChat.name}</h3>
+                <p>
+                  {currentChat.online ? (
+                    <>
+                      <span className="text-green-600">●</span> online
+                    </>
+                  ) : (
+                    currentChat.lastSeen || 'Offline'
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <div className="chat-actions">
+              {conversationModes[currentChat.id] === 'human' ? (
+                /* Botão para retornar ao bot quando em modo humano */
+                <button 
+                  onClick={() => handleReturnConversationToBot(currentChat.id)}
+                  className={`takeover-btn takeover-btn-human flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${
+                    takingOverChat && selectedChat === chats.indexOf(currentChat) 
+                      ? 'opacity-70 cursor-not-allowed' 
+                      : 'hover:bg-green-200 hover:border-green-300'
+                  }`}
+                  title="Retornar conversa para o bot"
+                  disabled={takingOverChat}
+                >
+                  {takingOverChat && selectedChat === chats.indexOf(currentChat) ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Transferindo...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Bot className="w-4 h-4" />
+                      <span>Retornar ao Bot</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                /* Botão para assumir controle quando em modo bot */
+                <button 
+                  onClick={() => handleTakeoverConversation(currentChat.id)}
+                  className={`takeover-btn flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${
+                    takingOverChat && selectedChat === chats.indexOf(currentChat) 
+                      ? 'opacity-70 cursor-not-allowed' 
+                      : 'hover:bg-blue-200 hover:border-blue-300'
+                  } bg-blue-100 text-blue-800 border border-blue-200`}
+                  title="Assumir conversa do bot"
+                  disabled={takingOverChat}
+                >
+                  {takingOverChat && selectedChat === chats.indexOf(currentChat) ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Assumindo...</span>
+                    </>
+                  ) : (
+                    <>
+                      <User className="w-4 h-4" />
+                      <span>Assumir</span>
+                    </>
+                  )}
+                </button>
+              )}
+              
+              <Search size={20} title="Pesquisar mensagens" className="cursor-pointer hover:text-gray-700" />
+              <MoreVertical size={20} title="Mais opções" className="cursor-pointer hover:text-gray-700" />
+            </div>
+          </div>
+
+          {/* Área de Mensagens */}
+          <div className="messages-container">
+            {currentChat.messages && currentChat.messages.length > 0 ? (
+              currentChat.messages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`message ${msg.sent ? 'sent' : 'received'}`}
+                >
+                  <div className={`message-bubble ${msg.sent ? 'sent' : 'received'} ${msg.sender ? 'agent-message' : ''}`}>
+                    {msg.sender && !msg.sent && (
+                      <div className="message-sender">
+                        {msg.sender}
+                        {msg.isBot && <span className="ai-status">🤖 IA</span>}
+                      </div>
+                    )}
+                    <div className="message-content">{msg.text}</div>
+                    <div className="message-meta">
+                      <span>{msg.time}</span>
+                      {msg.sent && (
+                        <div className={`message-status ${msg.read ? 'read' : ''}`}>
+                          {msg.read ?
+                            <CheckCheck size={12} /> :
+                            <Check size={12} />
+                          }
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center text-gray-500">
+                  <MessageCircle className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                  <p>Nenhuma mensagem nesta conversa</p>
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input de Mensagem */}
+          <div className="message-input-container">
+            <div className="input-actions">
+              <button className="input-action-btn" title="Emoji">
+                <Smile size={20} />
+              </button>
+              <button className="input-action-btn" title="Anexar">
+                <Paperclip size={20} />
+              </button>
+            </div>
+
+            <input
+              type="text"
+              placeholder="Digite uma mensagem"
+              className="message-input"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              onKeyPress={handleKeyPress}
+              disabled={!whatsappConnected}
+            />
+
+            {newMessage.trim() ? (
+              <button
+                onClick={handleSendMessage}
+                className="send-button"
+                title="Enviar mensagem"
+                disabled={!whatsappConnected}
+              >
+                <Send size={18} />
+              </button>
+            ) : (
+              <button className="input-action-btn" title="Mensagem de voz">
+                <Mic size={20} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderTaskManagerView = () => (
     <div className="flex-1 p-6">
@@ -2090,30 +2416,36 @@ const Dash = () => {
             </div>
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center flex-1 md:w-40">
               <div className="text-xs text-gray-500">Sem Número</div>
-              <div className="text-lg font-semibold text-gray-800">{contacts.filter(c => !c.phone).length}</div>
+              <div className="text-lg font-semibold text-gray-800">{contacts.filter(c => !c.telefone).length}</div>
             </div>
           </div>
         </div>
 
         {/* Contacts table/list */}
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b bg-gray-50">
-                <th className="text-left p-3 font-semibold text-gray-700">Contato</th>
-                <th className="text-left p-3 font-semibold text-gray-700">Telefone</th>
-                <th className="text-left p-3 font-semibold text-gray-700">Tags</th>
-                <th className="text-left p-3 font-semibold text-gray-700">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredContacts.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="p-6 text-center text-gray-500">
-                    Nenhum contato encontrado.
-                  </td>
+          {loadingContacts ? (
+            <div className="flex justify-center items-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+              <span className="ml-2 text-gray-600">Carregando contatos...</span>
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="text-left p-3 font-semibold text-gray-700">Contato</th>
+                  <th className="text-left p-3 font-semibold text-gray-700">Telefone</th>
+                  <th className="text-left p-3 font-semibold text-gray-700">Tags</th>
+                  <th className="text-left p-3 font-semibold text-gray-700">Ações</th>
                 </tr>
-              ) : (
+              </thead>
+              <tbody>
+                {filteredContacts.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="p-6 text-center text-gray-500">
+                      {contacts.length === 0 ? "Nenhum contato cadastrado ainda." : "Nenhum contato encontrado com os filtros aplicados."}
+                    </td>
+                  </tr>
+                ) : (
                 filteredContacts.map((c, index) => (
                   <tr key={c.id || index} className="border-b hover:bg-gray-50">
                     <td className="p-3">
@@ -2122,12 +2454,12 @@ const Dash = () => {
                           {c.avatar || '👤'}
                         </div>
                         <div>
-                          <div className="font-medium text-gray-800">{c.name || 'Sem nome'}</div>
-                          {c.note && <div className="text-xs text-gray-500">{c.note}</div>}
+                          <div className="font-medium text-gray-800">{c.nome || 'Sem nome'}</div>
+                          {c.nota && <div className="text-xs text-gray-500">{c.nota}</div>}
                         </div>
                       </div>
                     </td>
-                    <td className="p-3 text-gray-700">{c.phone || '-'}</td>
+                    <td className="p-3 text-gray-700">{c.telefone || '-'}</td>
                     <td className="p-3">
                       <div className="flex flex-wrap gap-1">
                         {(c.tags || []).map((t, i) => (
@@ -2141,14 +2473,14 @@ const Dash = () => {
                     <td className="p-3">
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => handleEditContact(index)}
+                          onClick={() => handleEditContact(c)}
                           className="p-1 hover:bg-gray-100 rounded transition-colors"
                           title="Editar"
                         >
                           <Edit className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => handleDeleteContact(index)}
+                          onClick={() => handleDeleteContact(c.id)}
                           className="p-1 hover:bg-gray-100 rounded transition-colors text-red-600"
                           title="Excluir"
                         >
@@ -2158,9 +2490,10 @@ const Dash = () => {
                     </td>
                   </tr>
                 ))
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
@@ -2169,14 +2502,14 @@ const Dash = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">
-              {editingContactIndex !== null ? 'Editar Contato' : 'Novo Contato'}
+              {editingContactId !== null ? 'Editar Contato' : 'Novo Contato'}
             </h3>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
                 <input
-                  value={newContact.name}
-                  onChange={(e) => setNewContact({ ...newContact, name: e.target.value })}
+                  value={newContact.nome}
+                  onChange={(e) => setNewContact({ ...newContact, nome: e.target.value })}
                   className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Ex: João Silva"
                 />
@@ -2184,8 +2517,8 @@ const Dash = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
                 <input
-                  value={newContact.phone}
-                  onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })}
+                  value={newContact.telefone}
+                  onChange={(e) => setNewContact({ ...newContact, telefone: e.target.value })}
                   className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Ex: 11 99999-9999"
                 />
@@ -2211,8 +2544,8 @@ const Dash = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
                 <textarea
-                  value={newContact.note}
-                  onChange={(e) => setNewContact({ ...newContact, note: e.target.value })}
+                  value={newContact.nota}
+                  onChange={(e) => setNewContact({ ...newContact, nota: e.target.value })}
                   className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   rows={3}
                   placeholder="Observações sobre o contato"
@@ -2230,113 +2563,147 @@ const Dash = () => {
   );
 
   const renderReportsView = () => {
-    // Simulação de dados de conversas para os gráficos (em uma implementação real, estes viriam de uma API)
-    const conversationsData = [
-      { month: 'Jan', conversations: 45 },
-      { month: 'Fev', conversations: 52 },
-      { month: 'Mar', conversations: 38 },
-      { month: 'Abr', conversations: 61 },
-      { month: 'Mai', conversations: 47 },
-      { month: 'Jun', conversations: 73 },
-      { month: 'Jul', conversations: 89 },
-      { month: 'Ago', conversations: 76 },
-      { month: 'Set', conversations: 82 },
-      { month: 'Out', conversations: 69 },
-      { month: 'Nov', conversations: 95 },
-      { month: 'Dez', conversations: 108 }
-    ];
+    // Estatísticas baseadas nos dados reais do sistema
+    const totalContacts = contacts.length;
+    const totalConversations = chats.length;
+    const unreadMessages = chats.reduce((sum, chat) => sum + (chat.unread || 0), 0);
+    
+    // Decidir qual fonte de dados usar
+    let conversationsData, messagesData, totalUserMessages, totalAiMessages;
+    
+    if (useMockData) {
+      // Dados simulados para os gráficos de conversas por mês
+      conversationsData = [
+        { month: 'Jan', conversations: 45 },
+        { month: 'Fev', conversations: 52 },
+        { month: 'Mar', conversations: 38 },
+        { month: 'Abr', conversations: 61 },
+        { month: 'Mai', conversations: 47 },
+        { month: 'Jun', conversations: 73 },
+        { month: 'Jul', conversations: 89 },
+        { month: 'Ago', conversations: 76 },
+        { month: 'Set', conversations: 82 },
+        { month: 'Out', conversations: 69 },
+        { month: 'Nov', conversations: 95 },
+        { month: 'Dez', conversations: 108 }
+      ];
 
-    // Simulação de dados de mensagens para os gráficos
-    const messagesData = [
-      { category: 'Mensagens da IA', messages: 1247, fill: '#3B82F6' },
-      { category: 'Mensagens de Usuários', messages: 892, fill: '#10B981' }
-    ];
+      // Dados simulados para mensagens de usuários vs IA por mês
+      messagesData = [
+        { month: 'Jan', userMessages: 245, aiMessages: 389 },
+        { month: 'Fev', userMessages: 298, aiMessages: 456 },
+        { month: 'Mar', userMessages: 187, aiMessages: 298 },
+        { month: 'Abr', userMessages: 367, aiMessages: 523 },
+        { month: 'Mai', userMessages: 289, aiMessages: 398 },
+        { month: 'Jun', userMessages: 445, aiMessages: 634 },
+        { month: 'Jul', userMessages: 523, aiMessages: 789 },
+        { month: 'Ago', userMessages: 478, aiMessages: 695 },
+        { month: 'Set', userMessages: 512, aiMessages: 745 },
+        { month: 'Out', userMessages: 401, aiMessages: 589 },
+        { month: 'Nov', userMessages: 634, aiMessages: 845 },
+        { month: 'Dez', userMessages: 698, aiMessages: 923 }
+      ];
+    } else {
+      // Usar dados reais da API
+      conversationsData = reportData.conversationsByMonth.length > 0 ? reportData.conversationsByMonth : [
+        { month: 'Jan', conversations: 0 },
+        { month: 'Fev', conversations: 0 },
+        { month: 'Mar', conversations: 0 },
+        { month: 'Abr', conversations: 0 },
+        { month: 'Mai', conversations: 0 },
+        { month: 'Jun', conversations: 0 },
+        { month: 'Jul', conversations: 0 },
+        { month: 'Ago', conversations: 0 },
+        { month: 'Set', conversations: 0 },
+        { month: 'Out', conversations: 0 },
+        { month: 'Nov', conversations: 0 },
+        { month: 'Dez', conversations: 0 }
+      ];
+
+      messagesData = reportData.messagesByMonth.length > 0 ? reportData.messagesByMonth : [
+        { month: 'Jan', userMessages: 0, aiMessages: 0 },
+        { month: 'Fev', userMessages: 0, aiMessages: 0 },
+        { month: 'Mar', userMessages: 0, aiMessages: 0 },
+        { month: 'Abr', userMessages: 0, aiMessages: 0 },
+        { month: 'Mai', userMessages: 0, aiMessages: 0 },
+        { month: 'Jun', userMessages: 0, aiMessages: 0 },
+        { month: 'Jul', userMessages: 0, aiMessages: 0 },
+        { month: 'Ago', userMessages: 0, aiMessages: 0 },
+        { month: 'Set', userMessages: 0, aiMessages: 0 },
+        { month: 'Out', userMessages: 0, aiMessages: 0 },
+        { month: 'Nov', userMessages: 0, aiMessages: 0 },
+        { month: 'Dez', userMessages: 0, aiMessages: 0 }
+      ];
+    }
 
     // Estatísticas gerais
-    const totalMessages = messagesData.reduce((sum, data) => sum + data.messages, 0);
-    const totalConversations = conversationsData.reduce((sum, data) => sum + data.conversations, 0);
-    const averageMessagesPerConversation = totalConversations > 0 ? (totalMessages / totalConversations).toFixed(1) : 0;
-
-    // Dados dos logs para a tabela (mantendo funcionalidade existente)
-    const filteredLogs = atividadeLog;
-    const logStats = {
-      totalActions: filteredLogs.length,
-      tasksCreated: filteredLogs.filter(log => log.action === "create_task").length,
-      statusUpdates: filteredLogs.filter(log => log.action === "update_task_status").length,
-      tasksDeleted: filteredLogs.filter(log => log.action === "delete_task").length,
-      filesUploaded: filteredLogs.filter(log => log.action === "upload_file").length,
-    };
-
-    // Cores para o gráfico de pizza
-    const COLORS = ['#3B82F6', '#10B981'];
-
-    // Função para obter detalhes da ação
-    const getActionDetails = (log) => {
-      const currentTask = tasks.find(t => t.id === log.taskId);
-      const taskTitle = log.taskTitle || currentTask?.titulo || 'Tarefa não encontrada';
-
-      switch (log.action) {
-        case 'create_task':
-          return {
-            icon: <Plus className="w-4 h-4 text-blue-600" />,
-            label: 'Tarefa Criada',
-            description: `Nova tarefa: "${taskTitle}"`,
-            color: 'text-blue-600'
-          };
-        case 'update_task_status':
-          {
-            const statusLabelsDetail = {
-              pendente: "Pendente",
-              em_andamento: "Em Andamento",
-              finalizado: "Finalizado",
-              vencido: "Vencido/Em Atraso"
-            };
-            const currentStatus = currentTask?.status || 'unknown';
-            const statusLabel = statusLabelsDetail[currentStatus] || currentStatus;
-            return {
-              icon: <CheckCircle className="w-4 h-4 text-yellow-600" />,
-              label: 'Status Atualizado',
-              description: `"${taskTitle}" → Status: ${statusLabel}`,
-              color: 'text-yellow-600'
-            };
-          }
-        case 'delete_task':
-          return {
-            icon: <Trash2 className="w-4 h-4 text-red-600" />,
-            label: 'Tarefa Excluída',
-            description: `Tarefa removida: "${taskTitle}"`,
-            color: 'text-red-600'
-          };
-        case 'upload_file':
-          return {
-            icon: <FileText className="w-4 h-4 text-green-600" />,
-            label: 'Comprovante Anexado',
-            description: `Arquivo adicionado à tarefa: "${taskTitle}"`,
-            color: 'text-green-600'
-          };
-        default:
-          return {
-            icon: <AlertCircle className="w-4 h-4 text-gray-600" />,
-            label: 'Ação Desconhecida',
-            description: `${log.action} em "${taskTitle}"`,
-            color: 'text-gray-600'
-          };
-      }
-    };
+    totalUserMessages = messagesData.reduce((sum, data) => sum + (data.userMessages || 0), 0);
+    totalAiMessages = messagesData.reduce((sum, data) => sum + (data.aiMessages || 0), 0);
+    const totalMessages = totalUserMessages + totalAiMessages;
+    const totalYearlyConversations = conversationsData.reduce((sum, data) => sum + (data.conversations || 0), 0);
+    const averageMessagesPerConversation = totalYearlyConversations > 0 ? (totalMessages / totalYearlyConversations).toFixed(1) : 0;
 
     return (
       <div className="flex-1 p-6 space-y-6">
+        {/* Controles dos Relatórios */}
+        <div className="bg-white rounded-lg shadow-sm border p-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+            <div className="flex items-center gap-3">            </div>
+            
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-medium text-gray-700">Ano:</label>
+              <select
+                value={selectedReportYear}
+                onChange={(e) => setSelectedReportYear(parseInt(e.target.value))}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+              >
+                <option value={2028}>2028</option>
+                <option value={2027}>2027</option>
+                <option value={2026}>2026</option>
+                <option value={2025}>2025</option>
+              </select>
+            </div>
+            
+            {loadingReports && (
+              <div className="flex items-center gap-2 text-blue-600">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-sm">Carregando dados...</span>
+              </div>
+            )}
+            
+            {reportsError && (
+              <div className="flex items-center gap-2 text-red-600">
+                <AlertTriangle className="w-4 h-4" />
+                <span className="text-sm">{reportsError}</span>
+              </div>
+            )}
+          </div>
+        </div>
+        
         {/* Estatísticas Principais */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="bg-white rounded-lg shadow-sm border p-6">
             <div className="flex items-center gap-4">
               <div className="p-3 bg-blue-100 rounded-lg">
-                <MessageCircle className="w-8 h-8 text-blue-600" />
+                <Contact className="w-8 h-8 text-blue-600" />
               </div>
               <div>
-                <div className="text-2xl font-bold text-gray-900">{totalMessages.toLocaleString()}</div>
-                <div className="text-gray-600 font-medium">Total de Mensagens</div>
-                <div className="text-sm text-gray-500">Enviadas e recebidas</div>
+                <div className="text-2xl font-bold text-gray-900">{totalContacts}</div>
+                <div className="text-gray-600 font-medium">Contatos</div>
+                <div className="text-sm text-gray-500">Total cadastrado</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-purple-100 rounded-lg">
+                <MessageCircle className="w-8 h-8 text-purple-600" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-gray-900">{totalConversations}</div>
+                <div className="text-gray-600 font-medium">Conversas Ativas</div>
+                <div className="text-sm text-gray-500">WhatsApp conectado</div>
               </div>
             </div>
           </div>
@@ -2347,17 +2714,46 @@ const Dash = () => {
                 <Users className="w-8 h-8 text-green-600" />
               </div>
               <div>
-                <div className="text-2xl font-bold text-gray-900">{totalConversations.toLocaleString()}</div>
-                <div className="text-gray-600 font-medium">Total de Conversas</div>
-                <div className="text-sm text-gray-500">Iniciadas este ano</div>
+                <div className="text-2xl font-bold text-gray-900">{totalUserMessages.toLocaleString()}</div>
+                <div className="text-gray-600 font-medium">Mensagens de Usuários</div>
+                <div className="text-sm text-gray-500">Este ano</div>
               </div>
             </div>
           </div>
 
           <div className="bg-white rounded-lg shadow-sm border p-6">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-purple-100 rounded-lg">
-                <TrendingUp className="w-8 h-8 text-purple-600" />
+              <div className="p-3 bg-orange-100 rounded-lg">
+                <Bot className="w-8 h-8 text-orange-600" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-gray-900">{totalAiMessages.toLocaleString()}</div>
+                <div className="text-gray-600 font-medium">Mensagens da IA</div>
+                <div className="text-sm text-gray-500">Este ano</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Estatísticas Adicionais */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-yellow-100 rounded-lg">
+                <Bell className="w-8 h-8 text-yellow-600" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-gray-900">{unreadMessages}</div>
+                <div className="text-gray-600 font-medium">Mensagens Não Lidas</div>
+                <div className="text-sm text-gray-500">Requer resposta</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-indigo-100 rounded-lg">
+                <TrendingUp className="w-8 h-8 text-indigo-600" />
               </div>
               <div>
                 <div className="text-2xl font-bold text-gray-900">{averageMessagesPerConversation}</div>
@@ -2370,43 +2766,7 @@ const Dash = () => {
 
         {/* Gráficos */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {/* Gráfico de Barras - Mensagens */}
-          <div className="bg-white rounded-lg shadow-sm border p-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-blue-600" />
-              Mensagens Trocadas
-            </h3>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={messagesData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey="category" 
-                    fontSize={12}
-                    tick={{ fill: '#6B7280' }}
-                  />
-                  <YAxis 
-                    fontSize={12}
-                    tick={{ fill: '#6B7280' }}
-                  />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: '#F9FAFB', 
-                      border: '1px solid #E5E7EB',
-                      borderRadius: '8px'
-                    }}
-                  />
-                  <Bar 
-                    dataKey="messages" 
-                    fill="#3B82F6" 
-                    radius={[4, 4, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Gráfico de Linhas - Novas Conversas */}
+          {/* Gráfico de Linhas - Novas Conversas por Mês */}
           <div className="bg-white rounded-lg shadow-sm border p-6">
             <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
               <ChartLine className="w-5 h-5 text-green-600" />
@@ -2444,8 +2804,111 @@ const Dash = () => {
               </ResponsiveContainer>
             </div>
           </div>
+
+          {/* Gráfico de Barras - Mensagens Usuários vs IA */}
+          <div className="bg-white rounded-lg shadow-sm border p-6">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-blue-600" />
+              Mensagens: Usuários vs IA
+            </h3>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={messagesData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="month" 
+                    fontSize={12}
+                    tick={{ fill: '#6B7280' }}
+                  />
+                  <YAxis 
+                    fontSize={12}
+                    tick={{ fill: '#6B7280' }}
+                  />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: '#F9FAFB', 
+                      border: '1px solid #E5E7EB',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Legend />
+                  <Bar 
+                    dataKey="userMessages" 
+                    fill="#3B82F6" 
+                    radius={[4, 4, 0, 0]}
+                    name="Mensagens de Usuários"
+                  />
+                  <Bar 
+                    dataKey="aiMessages" 
+                    fill="#F59E0B" 
+                    radius={[4, 4, 0, 0]}
+                    name="Mensagens da IA"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         </div>
 
+        {/* Status do Sistema */}
+        <div className="bg-white rounded-lg shadow-sm border p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-green-600" />
+            Status do Sistema
+          </h3>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div>
+                <div className="font-medium text-gray-800">WhatsApp Integration</div>
+                <div className="text-sm text-gray-600">
+                  {whatsappConnected ? 'Conectado e funcionando' : 'Desconectado'}
+                </div>
+              </div>
+              <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                whatsappConnected 
+                  ? 'bg-green-100 text-green-800' 
+                  : 'bg-red-100 text-red-800'
+              }`}>
+                {whatsappConnected ? 'Online' : 'Offline'}
+              </div>
+            </div>
+            
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div>
+                <div className="font-medium text-gray-800">Sistema de Contatos</div>
+                <div className="text-sm text-gray-600">
+                  {totalContacts} contatos cadastrados
+                </div>
+              </div>
+              <div className="px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
+                Ativo
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Alertas e Notificações */}
+        {unreadMessages > 0 && (
+          <div className="bg-white rounded-lg shadow-sm border border-orange-200 p-6">
+            <h3 className="text-lg font-semibold text-orange-800 mb-4 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-orange-600" />
+              Alertas Importantes
+            </h3>
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <MessageCircle className="w-5 h-5 text-blue-600 flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-blue-800">
+                    {unreadMessages} mensagem(ns) não lida(s)
+                  </div>
+                  <div className="text-sm text-blue-600">
+                    Aguardando resposta
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
