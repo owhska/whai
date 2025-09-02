@@ -309,7 +309,7 @@ class WhatsAppService {
     });
   }
 
-  // ===== FUNCIONALIDADES DO AGENTE IA =====
+// ===== FUNCIONALIDADES DO AGENTE IA E TAKEOVER =====
 
   /**
    * Configurar respostas automáticas do agente IA
@@ -321,6 +321,91 @@ class WhatsAppService {
     } catch (error) {
       console.error('[WhatsApp] Erro ao configurar agente IA:', error);
       throw new Error(error.response?.data?.message || 'Erro ao configurar agente IA');
+    }
+  }
+  
+  /**
+   * Assumir controle de uma conversa do chatbot (transferência bot → humano)
+   * @param {string} chatId - ID da conversa a ser assumida
+   * @param {object} options - Opções adicionais como operatorId, message, etc
+   * @returns {Promise<object>} - Resultado da operação
+   */
+  async takeoverConversation(chatId, options = {}) {
+    try {
+      const payload = {
+        chatId,
+        operatorId: options.operatorId || null,
+        operatorName: options.operatorName || null,
+        notifyUser: options.notifyUser !== false, // Default: true
+        customMessage: options.message || null,
+        ...options
+      };
+      
+      const response = await axiosInstance.post(`${this.baseUrl}/conversation/takeover`, payload);
+      return response.data;
+    } catch (error) {
+      console.error('[WhatsApp] Erro ao assumir conversa:', error);
+      throw new Error(error.response?.data?.message || 'Erro ao assumir controle da conversa');
+    }
+  }
+  
+  /**
+   * Retornar uma conversa para o controle do bot (transferência humano → bot)
+   * @param {string} chatId - ID da conversa a ser retornada ao bot
+   * @param {object} options - Opções adicionais como message, etc
+   * @returns {Promise<object>} - Resultado da operação
+   */
+  async returnConversationToBot(chatId, options = {}) {
+    try {
+      const payload = {
+        chatId,
+        operatorId: options.operatorId || null,
+        notifyUser: options.notifyUser !== false, // Default: true
+        customMessage: options.message || null,
+        ...options
+      };
+      
+      const response = await axiosInstance.post(`${this.baseUrl}/conversation/return-to-bot`, payload);
+      return response.data;
+    } catch (error) {
+      console.error('[WhatsApp] Erro ao retornar conversa ao bot:', error);
+      throw new Error(error.response?.data?.message || 'Erro ao retornar conversa ao bot');
+    }
+  }
+  
+  /**
+   * Obter o modo atual de uma conversa (bot ou humano)
+   * @param {string} chatId - ID da conversa
+   * @returns {Promise<object>} - Modo da conversa e detalhes
+   */
+  async getConversationMode(chatId) {
+    try {
+      const response = await axiosInstance.get(`${this.baseUrl}/conversation/${chatId}/mode`);
+      return response.data;
+    } catch (error) {
+      console.error('[WhatsApp] Erro ao obter modo da conversa:', error);
+      return { mode: 'unknown', error: error.message };
+    }
+  }
+  
+  /**
+   * Obter histórico de transferências de uma conversa
+   * @param {string} chatId - ID da conversa
+   * @param {object} options - Opções como limit, offset
+   * @returns {Promise<Array>} - Histórico de transferências
+   */
+  async getConversationTransfers(chatId, options = {}) {
+    try {
+      const response = await axiosInstance.get(`${this.baseUrl}/conversation/${chatId}/transfers`, {
+        params: {
+          limit: options.limit || 50,
+          offset: options.offset || 0
+        }
+      });
+      return response.data.transfers || [];
+    } catch (error) {
+      console.error('[WhatsApp] Erro ao obter histórico de transferências:', error);
+      return [];
     }
   }
 
@@ -459,18 +544,31 @@ class WhatsAppService {
 
   // ===== TEMPLATES E MENSAGENS RÁPIDAS =====
 
-  /**
-   * Buscar templates disponíveis
-   */
-  async getTemplates() {
-    try {
-      const response = await axiosInstance.get(`${this.baseUrl}/templates`);
-      return response.data.templates || [];
-    } catch (error) {
-      console.error('[WhatsApp] Erro ao buscar templates:', error);
-      return [];
-    }
+/**
+ * Buscar templates disponíveis
+ */
+async getTemplates() {
+  try {
+    const response = await axiosInstance.get(`${this.baseUrl}/templates`);
+    return response.data.templates || [];
+  } catch (error) {
+    console.error('[WhatsApp] Erro ao buscar templates:', error);
+    return [];
   }
+}
+
+/**
+ * Obter operadores humanos disponíveis
+ */
+async getAvailableOperators() {
+  try {
+    const response = await axiosInstance.get(`${this.baseUrl}/operators`);
+    return response.data.operators || [];
+  } catch (error) {
+    console.error('[WhatsApp] Erro ao buscar operadores:', error);
+    return [];
+  }
+}
 
   /**
    * Enviar template de mensagem
@@ -547,7 +645,7 @@ class WhatsAppService {
     }
   }
 
-  // ===== MÉTODOS PARA COMPATIBILIDADE COM O COMPONENTE =====
+// ===== MÉTODOS PARA COMPATIBILIDADE COM O COMPONENTE =====
 
   /**
    * Buscar estatísticas do agente (método mock)
@@ -559,7 +657,10 @@ class WhatsAppService {
       unreadMessages: 3,
       activeAgents: 1,
       averageResponseTime: '2m',
-      dailyMessages: 25
+      dailyMessages: 25,
+      botChats: 3,
+      humanChats: 2,
+      transfersToday: 4
     };
   }
 
@@ -635,6 +736,25 @@ class WhatsAppService {
         timestamp: Date.now()
       });
     }, 5000);
+  }
+  
+  /**
+   * Verificar modo de conversa (mock)
+   * @param {string} chatId - ID da conversa
+   * @returns {Promise<object>} - Informações do modo da conversa
+   */
+  async checkConversationMode(chatId) {
+    console.warn('[WhatsApp] checkConversationMode é um método mock');
+    // Retorna dados simulados
+    return {
+      chatId,
+      mode: Math.random() > 0.5 ? 'human' : 'bot',
+      since: new Date().toISOString(),
+      currentOperator: Math.random() > 0.5 ? {
+        id: 'op123',
+        name: 'Operador Teste'
+      } : null
+    };
   }
 
   /**

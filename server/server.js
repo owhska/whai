@@ -5,6 +5,8 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 
+// Sistema de autenticação baseado apenas em tokens mock/SQLite
+
 // Importar funções do SQLite
 const {
     // Arquivos
@@ -83,15 +85,10 @@ const authenticateToken = async (req, res, next) => {
       return;
     }
     
-    // Verificar se é um token Firebase válido
-    console.log('[AUTH] Tentando verificar como token Firebase...');
-    const decodedToken = await admin.auth().verifyIdToken(token);
-    req.user = { uid: decodedToken.uid, email: decodedToken.email };
-    console.log('[AUTH] ✅ Token Firebase válido, UID extraído:', req.user.uid);
-    next();
+    // Token não reconhecido
+    throw new Error('Token não reconhecido - apenas tokens mock são suportados');
   } catch (error) {
     console.error("[AUTH] ❌ Erro na autenticação:", error.message);
-    console.error("[AUTH] Stack trace:", error.stack);
     res.status(401).json({ error: "Token inválido" });
   }
 };

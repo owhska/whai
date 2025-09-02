@@ -872,9 +872,121 @@
 .chat-list::-webkit-scrollbar-thumb:hover,
 .messages-container::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
+/* Botão de assumir conversa */
+.takeover-btn {
+  transition: all 0.2s ease-in-out;
+  position: relative;
+  overflow: hidden;
+  font-weight: 500;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  font-size: 13px;
+  padding: 6px 12px;
+  gap: 6px;
+  border: 1px solid;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  background: none;
+}
+
+.takeover-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.takeover-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* Estado bot */
+.takeover-btn:not(.takeover-btn-human):hover {
+  background-color: #dbeafe;
+  border-color: #3b82f6;
+  color: #1e40af;
+}
+
+/* Estado humano */
+.takeover-btn.takeover-btn-human {
+  background-color: #dcfce7;
+  border-color: #22c55e;
+  color: #166534;
+}
+
+.takeover-btn.takeover-btn-human:hover {
+  background-color: #bbf7d0;
+  border-color: #16a34a;
+  color: #14532d;
+}
+
+/* Loading state */
+.takeover-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.takeover-btn:disabled:hover {
+  transform: none;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* Spinner animation */
+@keyframes takeover-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.takeover-btn .animate-spin {
+  animation: takeover-spin 1s linear infinite;
+}
+
+/* Integração com o theme moderno */
+.takeover-btn {
+  background: var(--bg-surface);
+  border-color: var(--border-soft);
+  color: var(--text-secondary);
+}
+
+/* Estado bot no theme moderno */
+.takeover-btn:not(.takeover-btn-human):hover {
+  background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+/* Estado humano no theme moderno */
+.takeover-btn.takeover-btn-human {
+  background: var(--success-soft);
+  border-color: var(--success-strong);
+  color: #065f46;
+}
+
+.takeover-btn.takeover-btn-human:hover {
+  background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+  border-color: #059669;
+  color: #064e3b;
+}
+
 /* Responsive polish */
 @media (max-width: 768px) {
   .chat-item { margin: 4px 8px; }
   .message-bubble { max-width: 85%; }
   .send-button { width: 40px; height: 40px; }
+  
+  /* Botão takeover em mobile */
+  .takeover-btn {
+    padding: 4px 8px;
+    font-size: 12px;
+    gap: 4px;
+  }
+  
+  .takeover-btn span {
+    display: none;
+  }
 }
